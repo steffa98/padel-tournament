@@ -53,14 +53,21 @@ const save = patch => Promise.resolve(backend.update(code, patch)).catch(e => al
 const players = () => Object.entries(t.players || {}).map(([id, p]) => ({ id, ...p }))
 const nameOf = id => esc(t.players?.[id]?.name ?? '?')
 const minutes = () => defaultMinutes(t.points)
-const numRounds = () => t.numRounds || suggestRounds(players().length, t.courts)
+// Auto rounds follow who actually joined; before 4 have joined, use the planned player count.
+const numRounds = () => t.numRounds || suggestRounds(players().length >= 4 ? players().length : t.expected || 4, t.courts)
 const fmtDur = m => (m >= 60 ? `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, '0')}m` : `${m} min`)
 const link = () => location.origin + location.pathname + '#' + code
+
+// Rules form, before the tournament exists (#new) or when the organiser edits them in the lobby.
+let draft = null
+const newDraft = () => ({ name: 'Padel ' + new Date().toLocaleDateString(), mode: 'americano', courts: 2, points: 24, expected: 8, numRounds: null })
 
 function route() {
   unsub?.()
   t = undefined
   code = location.hash.slice(1).toUpperCase() || null
+  draft = code === 'NEW' ? newDraft() : null
+  if (draft) code = null
   render()
   if (code) unsub = backend.watch(code, v => { t = v; renderSoon() })
 }
@@ -69,10 +76,10 @@ function render() {
   // Keep what the user is typing when a remote update re-renders the page.
   const f = document.activeElement
   const keep = f?.tagName === 'INPUT' && f.id ? { id: f.id, v: f.value } : null
-  $app.innerHTML = !code ? home()
+  $app.innerHTML = !code ? (draft ? setup() : home())
     : t === undefined ? '<p class="muted">Loading…</p>'
-    : t === null ? `<h1>Tournament ${esc(code)} not found</h1><a href="#">← Back</a>`
-    : t.status === 'lobby' ? lobby()
+    : t === null ? notFound()
+    : t.status === 'lobby' ? (draft ? setup() : lobby())
     : t.status === 'playing' ? playing()
     : finished()
   if (keep) {
@@ -98,7 +105,7 @@ const home = () => `
   <h1>🎾 Padel Tournament</h1>
   <div class="card stack">
     <h2>Organise</h2>
-    <button class="primary" data-act="create">New tournament</button>
+    <a class="button primary" href="#new">Create a tournament</a>
   </div>
   <form class="card stack" data-submit="goto">
     <h2>Join</h2>
@@ -107,38 +114,70 @@ const home = () => `
       <button>Join</button>
     </div>
   </form>
-  <p class="muted">Americano: partners rotate every round, everyone plays with everyone.
-  Mexicano: after round 1, players of similar ranking play together (1st + 4th vs 2nd + 3rd).
-  Each match is played to a fixed number of points; every player keeps the points their team scored.</p>`
+  <p class="muted">${modeInfo.americano}</p><p class="muted">${modeInfo.mexicano}</p>`
+
+const modeInfo = {
+  americano: 'Americano: partners rotate every round, everyone plays with everyone. Each player keeps the points their team scored.',
+  mexicano: 'Mexicano: round 1 is random, then players of similar ranking play together (1st + 4th vs 2nd + 3rd).',
+}
+
+const notFound = () => `<h1>Tournament ${esc(code)} not found</h1>
+  ${window.FIREBASE_CONFIG ? '<p>Check the code with the organiser.</p>' : `<div class="banner">This app is not connected to a
+  shared database yet, so a tournament only exists on the phone that created it. Add the Firebase config to
+  index.html (see README) to let other phones join.</div>`}
+  <a href="#">← Back</a>`
 
 const top = title => `<div class="top"><a href="#" aria-label="Home">←</a><h1>${title}</h1></div>`
 
 const stepper = (k, val, min, max) => `
   <div class="stepper">
-    <button data-act="step" data-k="${k}" data-d="-1" ${!isAdmin() || val <= min ? 'disabled' : ''} aria-label="Decrease">−</button>
+    <button type="button" data-act="draftStep" data-k="${k}" data-d="-1" ${val <= min ? 'disabled' : ''} aria-label="Decrease ${k}">−</button>
     <b>${val}</b>
-    <button data-act="step" data-k="${k}" data-d="1" ${!isAdmin() || val >= max ? 'disabled' : ''} aria-label="Increase">+</button>
+    <button type="button" data-act="draftStep" data-k="${k}" data-d="1" ${val >= max ? 'disabled' : ''} aria-label="Increase ${k}">+</button>
   </div>`
 
-function lobby() {
-  const ps = players(), n = ps.length, admin = isAdmin(), dis = admin ? '' : 'disabled'
-  const used = courtsInUse(t, n), sitting = n - used * 4, total = numRounds() * minutes()
-  const perPlayer = n ? Math.round((numRounds() * used * 4) / n) : 0
-  const mine = me()
-  return `
-  ${top(esc(t.name))}
-  <div class="card">
-    <h2>Invite players</h2>
-    <div class="code">${esc(code)}</div>
-    <div id="qr"></div>
-    <button class="primary" data-act="share">Share link</button>
-  </div>
+const draftRounds = () => draft.numRounds || suggestRounds(draft.expected, draft.courts)
 
+// Step 1 (organiser): the rules. Nothing is shared until "Create".
+function setup() {
+  const d = draft, rounds = draftRounds(), used = courtsInUse(d, d.expected), mins = defaultMinutes(d.points)
+  const sitting = d.expected - used * 4
+  return `
+  ${code ? `<div class="top"><button type="button" class="link" data-act="cancelDraft">← Back</button><h1>Edit rules</h1></div>`
+    : top('New tournament')}
+  <form class="card" data-submit="saveRules">
+    <h2>Name</h2>
+    <input id="d-name" name="name" data-draft="name" value="${esc(d.name)}" maxlength="40" required>
+    <h2 style="margin-top:16px">Mode</h2>
+    <div class="seg">
+      ${['americano', 'mexicano'].map(m => `<button type="button" data-act="draftSet" data-k="mode" data-v="${m}" class="${d.mode === m ? 'on' : ''}">${m[0].toUpperCase() + m.slice(1)}</button>`).join('')}
+    </div>
+    <p class="muted">${modeInfo[d.mode]}</p>
+    <div class="setting"><span>Players</span>${stepper('expected', d.expected, 4, 64)}</div>
+    <div class="setting"><span>Courts</span>${stepper('courts', d.courts, 1, 20)}</div>
+    <div class="setting"><span>Points per match</span>
+      <select data-draft="points">${[16, 21, 24, 32].map(p => `<option ${p === d.points ? 'selected' : ''}>${p}</option>`).join('')}</select></div>
+    <div class="setting"><span>Rounds</span>${stepper('numRounds', rounds, 1, 60)}</div>
+    <div class="setting"><span>Minutes per round</span><b>≈ ${mins}</b></div>
+    <div class="estimate">⏱ ≈ ${fmtDur(rounds * mins)}</div>
+    <p class="muted" style="margin:4px 0 16px">${used} court${used > 1 ? 's' : ''} in use${used < d.courts ? ` (${d.expected} players fill only ${used})` : ''}
+      · ${sitting ? `${sitting} sit${sitting > 1 ? '' : 's'} out each round · ` : ''}~${Math.round((rounds * used * 4) / d.expected)} matches per player.
+      Minutes per round are estimated from the points (~30 s per point + 4 min to change courts).</p>
+    <button class="primary">${code ? 'Save rules' : 'Create tournament & invite players'}</button>
+  </form>`
+}
+
+// Step 2 (everyone): join with your name; the organiser starts when everyone is in.
+function lobby() {
+  const ps = players(), n = ps.length, admin = isAdmin(), mine = me()
+  const joined = mine && t.players?.[mine]
+  const used = courtsInUse(t, n), rounds = numRounds()
+  const joinCard = `
   <div class="card">
-    <h2>Players (${n})</h2>
-    ${mine && t.players?.[mine] ? `<p>You joined as <b>${nameOf(mine)}</b>.</p>` : `
+    <h2>Players (${n}${t.expected ? ` / ${t.expected}` : ''})</h2>
+    ${joined ? `<p>You joined as <b>${nameOf(mine)}</b>.</p>` : `
       <form class="row" data-submit="join" style="margin-bottom:12px">
-        <input name="name" placeholder="Your name" maxlength="24" required autocomplete="given-name">
+        <input id="j-name" name="name" placeholder="Your name" maxlength="24" required autocomplete="given-name">
         <button>Join</button>
       </form>`}
     <ul class="players">
@@ -146,28 +185,27 @@ function lobby() {
         ${admin || p.id === mine ? `<button data-act="remove" data-id="${p.id}" aria-label="Remove ${esc(p.name)}">✕</button>` : ''}</li>`).join('')}
     </ul>
     ${admin ? `<form class="row" data-submit="add" style="margin-top:12px">
-      <input name="name" placeholder="Add player without phone" maxlength="24" required>
+      <input id="a-name" name="name" placeholder="Add player without phone" maxlength="24" required>
       <button>Add</button></form>` : ''}
-  </div>
-
+  </div>`
+  const invite = `
   <div class="card">
-    <h2>Settings</h2>
-    <div class="seg" style="margin-bottom:6px">
-      ${['americano', 'mexicano'].map(m => `<button data-act="set" data-k="mode" data-v="${m}" class="${t.mode === m ? 'on' : ''}" ${dis}>${m[0].toUpperCase() + m.slice(1)}</button>`).join('')}
-    </div>
-    <div class="setting"><span>Courts</span>${stepper('courts', t.courts, 1, 20)}</div>
-    <div class="setting"><span>Points per match</span>
-      <select data-change="points" ${dis}>${[16, 21, 24, 32].map(p => `<option ${p === t.points ? 'selected' : ''}>${p}</option>`).join('')}</select></div>
-    <div class="setting"><span>Rounds</span>${stepper('numRounds', numRounds(), 1, 60)}</div>
-    <div class="setting"><span>Minutes per round</span><b>≈ ${minutes()}</b></div>
-    <p class="muted" style="margin:0">Estimated from the points per match (~30 s per point + 4 min to change courts).</p>
-    <div class="estimate">⏱ ≈ ${fmtDur(total)}</div>
-    <p class="muted" style="margin:4px 0 0">${n < 4 ? 'Need at least 4 players.' :
-      `${used} court${used > 1 ? 's' : ''} in use${used < t.courts ? ` (not enough players for ${t.courts})` : ''}
-      · ${sitting ? `${sitting} sit${sitting > 1 ? '' : 's'} out each round · ` : ''}~${perPlayer} matches per player`}</p>
+    <h2>Invite players</h2>
+    <div class="code">${esc(code)}</div>
+    <div id="qr"></div>
+    <button class="primary" data-act="share">Share link</button>
+  </div>`
+  return `
+  ${top(esc(t.name))}
+  ${admin || joined ? invite + joinCard : joinCard + invite}
+  <div class="card">
+    <h2>Rules</h2>
+    <p style="margin:0"><b>${t.mode[0].toUpperCase() + t.mode.slice(1)}</b> · ${t.points} points per match · ${t.courts} court${t.courts > 1 ? 's' : ''} · ${rounds} rounds</p>
+    <div class="estimate">⏱ ≈ ${fmtDur(rounds * minutes())}</div>
+    ${n >= 4 && used < t.courts ? `<p class="muted" style="margin:4px 0 0">${n} players fill only ${used} court${used > 1 ? 's' : ''}.</p>` : ''}
+    ${admin ? `<button data-act="editRules" style="margin-top:12px">Edit rules</button>` : ''}
   </div>
-
-  ${admin ? `<button class="primary" data-act="start" ${n < 4 ? 'disabled' : ''}>Start tournament</button>`
+  ${admin ? `<button class="primary" data-act="start" ${n < 4 ? 'disabled' : ''}>${n < 4 ? 'Need at least 4 players' : 'Start tournament'}</button>`
     : `<p class="muted">Waiting for the organiser to start…</p>`}
   ${adminFooter()}`
 }
@@ -237,7 +275,7 @@ function finished() {
   </div>
   <button class="primary" data-act="shareImage" style="margin-bottom:12px">📸 Share results picture</button>
   <div class="card"><h2>Final standings</h2>${standingsTable()}</div>
-  <button class="primary" data-act="create">New tournament</button>`
+  <a class="button primary" href="#new">New tournament</a>`
 }
 
 const adminFooter = () => isAdmin() ? '' :
@@ -266,12 +304,32 @@ function drawQR() {
 
 // ---- Actions
 const actions = {
-  create() {
-    const c = rid(5)
-    ls.set('admin_' + c, '1')
-    code = c
-    save({ name: 'Padel ' + new Date().toLocaleDateString(), mode: 'americano', points: 24, courts: 2, status: 'lobby', created: Date.now() })
-    location.hash = c
+  draftSet({ k, v }) {
+    draft[k] = v
+    render()
+  },
+  draftStep({ k, d }) {
+    draft[k] = (k === 'numRounds' ? draftRounds() : draft[k]) + Number(d)
+    render()
+  },
+  editRules() {
+    const { name, mode, courts, points, numRounds = null, expected = players().length } = t
+    draft = { name, mode, courts, points, numRounds, expected: Math.max(4, expected) }
+    render()
+  },
+  cancelDraft() {
+    draft = null
+    render()
+  },
+  saveRules(fd) {
+    const { mode, courts, points, expected, numRounds } = draft
+    const rules = { name: String(fd.get('name')).trim(), mode, courts, points, expected, numRounds }
+    draft = null
+    if (code) return save(rules)
+    code = rid(5)
+    ls.set('admin_' + code, '1')
+    save({ ...rules, status: 'lobby', created: Date.now() })
+    location.hash = code
   },
   goto: fd => (location.hash = String(fd.get('code')).trim().toUpperCase()),
   join(fd) {
@@ -281,11 +339,6 @@ const actions = {
   },
   add: fd => save({ ['players/' + rid(8)]: { name: String(fd.get('name')).trim() } }),
   remove: ({ id }) => save({ ['players/' + id]: null }),
-  set: ({ k, v }) => save({ [k]: v }),
-  step({ k, d }) {
-    const cur = { courts: t.courts, numRounds: numRounds() }[k]
-    save({ [k]: cur + Number(d) })
-  },
   share() {
     const url = link()
     if (navigator.share) navigator.share({ title: t.name, text: `Join ${t.name}`, url }).catch(() => {})
@@ -330,8 +383,12 @@ $app.addEventListener('submit', e => {
   e.preventDefault()
   actions[e.target.dataset.submit](new FormData(e.target))
 })
-$app.addEventListener('change', e => {
-  if (e.target.dataset.change === 'points') save({ points: Number(e.target.value) })
+// Rules form: keep typed/selected values in the draft so stepper re-renders don't lose them.
+$app.addEventListener('input', e => {
+  const k = e.target.dataset.draft
+  if (!k || !draft) return
+  draft[k] = k === 'points' ? Number(e.target.value) : e.target.value
+  if (k === 'points') render()
 })
 
 // ---- Score wheels. Fixed total: setting one side fills the other (e.g. to 24: 15 → 9).
