@@ -54,6 +54,7 @@ const players = () => Object.entries(t.players || {}).map(([id, p]) => ({ id, ..
 const nameOf = id => esc(t.players?.[id]?.name ?? '?')
 const minutes = () => defaultMinutes(t.points)
 // Auto rounds follow who actually joined; before 4 have joined, use the planned player count.
+const isFull = () => !!t.expected && players().length >= t.expected
 const numRounds = () => t.numRounds || suggestRounds(players().length >= 4 ? players().length : t.expected || 4, t.courts)
 const fmtDur = m => (m >= 60 ? `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, '0')}m` : `${m} min`)
 const link = () => location.origin + location.pathname + '#' + code
@@ -153,7 +154,7 @@ function setup() {
       ${['americano', 'mexicano'].map(m => `<button type="button" data-act="draftSet" data-k="mode" data-v="${m}" class="${d.mode === m ? 'on' : ''}">${m[0].toUpperCase() + m.slice(1)}</button>`).join('')}
     </div>
     <p class="muted">${modeInfo[d.mode]}</p>
-    <div class="setting"><span>Players</span>${stepper('expected', d.expected, 4, 64)}</div>
+    <div class="setting"><span>Max players</span>${stepper('expected', d.expected, code ? Math.max(4, players().length) : 4, 64)}</div>
     <div class="setting"><span>Courts</span>${stepper('courts', d.courts, 1, 20)}</div>
     <div class="setting"><span>Points per match</span>
       <select data-draft="points">${[16, 21, 24, 32].map(p => `<option ${p === d.points ? 'selected' : ''}>${p}</option>`).join('')}</select></div>
@@ -171,20 +172,25 @@ function setup() {
 function lobby() {
   const ps = players(), n = ps.length, admin = isAdmin(), mine = me()
   const joined = mine && t.players?.[mine]
-  const used = courtsInUse(t, n), rounds = numRounds()
+  const used = courtsInUse(t, n), rounds = numRounds(), full = isFull()
   const joinCard = `
   <div class="card">
     <h2>Players (${n}${t.expected ? ` / ${t.expected}` : ''})</h2>
-    ${joined ? `<p>You joined as <b>${nameOf(mine)}</b>.</p>` : `
+    ${joined ? `<p>You joined as <b>${nameOf(mine)}</b>.</p>`
+      : full ? `<div class="banner">This tournament is full. Ask the organiser for a spot.</div>` : `
       <form class="row" data-submit="join" style="margin-bottom:12px">
         <input id="j-name" name="name" placeholder="Your name" maxlength="24" required autocomplete="given-name">
         <button>Join</button>
       </form>`}
     <ul class="players">
       ${ps.map(p => `<li><span>${esc(p.name)}${p.id === mine ? ' (you)' : ''}</span>
-        ${admin || p.id === mine ? `<button data-act="remove" data-id="${p.id}" aria-label="Remove ${esc(p.name)}">✕</button>` : ''}</li>`).join('')}
+        ${admin ? `<span class="row">
+          <button data-act="rename" data-id="${p.id}" aria-label="Rename ${esc(p.name)}">✎</button>
+          <button data-act="remove" data-id="${p.id}" aria-label="Remove ${esc(p.name)}">✕</button></span>`
+        : p.id === mine ? `<button data-act="remove" data-id="${p.id}" aria-label="Leave the tournament">✕</button>` : ''}</li>`).join('')}
     </ul>
-    ${admin ? `<form class="row" data-submit="add" style="margin-top:12px">
+    ${admin && full ? `<p class="muted" style="margin:12px 0 0">Full. To add more players, raise <b>Max players</b> in Edit rules.</p>`
+      : admin ? `<form class="row" data-submit="add" style="margin-top:12px">
       <input id="a-name" name="name" placeholder="Add player without phone" maxlength="24" required>
       <button>Add</button></form>` : ''}
   </div>`
@@ -332,13 +338,22 @@ const actions = {
     location.hash = code
   },
   goto: fd => (location.hash = String(fd.get('code')).trim().toUpperCase()),
+  // ponytail: cap is client-side only (Realtime Database rules can't count players); two phones taking the
+  // last spot at the same instant can go one over. The organiser can remove the extra player.
   join(fd) {
+    if (isFull()) return alert('Sorry, this tournament is full.')
     const id = rid(8)
     ls.set('me_' + code, id)
     save({ ['players/' + id]: { name: String(fd.get('name')).trim() } })
   },
-  add: fd => save({ ['players/' + rid(8)]: { name: String(fd.get('name')).trim() } }),
-  remove: ({ id }) => save({ ['players/' + id]: null }),
+  add: fd => !isFull() && save({ ['players/' + rid(8)]: { name: String(fd.get('name')).trim() } }),
+  remove({ id }) {
+    if (confirm(id === me() ? 'Leave the tournament?' : `Remove ${t.players[id].name}?`)) save({ ['players/' + id]: null })
+  },
+  rename({ id }) {
+    const name = prompt('New name', t.players[id].name)?.trim().slice(0, 24)
+    if (name) save({ [`players/${id}/name`]: name })
+  },
   share() {
     const url = link()
     if (navigator.share) navigator.share({ title: t.name, text: `Join ${t.name}`, url }).catch(() => {})

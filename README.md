@@ -10,7 +10,8 @@ Firebase Realtime Database to sync phones.
    round are estimated from the points (~30 s per point + 4 min changeover) and the total time estimate
    updates live. **Create tournament & invite players** gives a 5-letter code + QR code.
 2. **Join** (everyone): players scan the QR (or open the shared link, or type the code) on their own phones
-   and enter their name. The organiser can also add players who have no phone, and can still edit the rules.
+   and enter their name. Joining stops at **Max players**. Before the start the organiser can add players
+   who have no phone, rename (✎) or remove (✕) players, and edit the rules.
 3. Rounds follow the number of players who actually joined, unless the organiser set them by hand.
 4. **Start**: each round shows who plays on which court and who sits out. Anyone can enter a score by
    scrolling (or tapping) the number wheel; setting one side fills the other (e.g. to 24: 15 → 9).
