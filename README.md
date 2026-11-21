@@ -9,11 +9,16 @@ Firebase Realtime Database to sync phones.
 1. The organiser taps **New tournament** and gets a 5-letter code + QR code.
 2. Players scan the QR (or open the shared link, or type the code) on their own phones and enter their name.
    The organiser can also add players who have no phone.
-3. The organiser picks mode, courts, points per match, rounds. The time estimate updates live
-   (`rounds × minutes per round`; minutes default to ~30 s per point + 4 min changeover).
-4. **Start**: each round shows who plays on which court and who sits out. Anyone can enter a score;
-   typing one side fills the other (e.g. to 24: 15 → 9). Standings update on every phone.
-5. **Next round** / **End tournament now** (organiser only). Ending early freezes the current standings.
+3. The organiser picks mode, courts, points per match, rounds. Minutes per round are estimated from the
+   points (~30 s per point + 4 min changeover) and the total time estimate updates live.
+4. **Start**: each round shows who plays on which court and who sits out. Anyone can enter a score by
+   scrolling (or tapping) the number wheel; setting one side fills the other (e.g. to 24: 15 → 9).
+   Standings update on every phone.
+5. **Next round** unlocks only when every match has a result. **End tournament now** works at any time
+   and freezes the current standings (organiser only).
+6. The final screen shows the podium and a "Tournament wrapped" with random fun achievements
+   (Demolition, Nail-biter, On fire, Dream team, The Wall, …). **Share results picture** creates a
+   story-sized PNG and opens the phone's share sheet (or downloads it on desktop).
 
 - **Americano**: partners are picked to avoid repeated partners and opponents.
 - **Mexicano**: round 1 is random, then players are grouped by ranking (1st + 4th vs 2nd + 3rd).

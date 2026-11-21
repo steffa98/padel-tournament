@@ -95,3 +95,84 @@ export function makeRound(t) {
   }
   return { matches: best, sit }
 }
+
+// Seeded RNG (mulberry32) so every phone picks the same "random" achievements for a tournament.
+const rng = seed => {
+  let a = [...String(seed)].reduce((h, c) => Math.imul(h ^ c.charCodeAt(0), 16777619), 2166136261)
+  return () => {
+    a = (a + 0x6d2b79f5) | 0
+    let t = Math.imul(a ^ (a >>> 15), 1 | a)
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
+}
+
+// "Wrapped"-style fun facts: computes every award that applies, then picks `count` at random (seeded).
+export function achievements(t, seed = '', count = 4) {
+  const name = id => t.players?.[id]?.name ?? '?'
+  const team = ids => arr(ids).map(name).join(' & ')
+  const rounds = arr(t.rounds)
+  const ms = rounds.flatMap(r => arr(r.matches)).filter(done)
+  if (!ms.length) return []
+  const best = (list, score) => list.reduce((b, x) => (score(x) > score(b) ? x : b))
+  const key = ids => [...ids].sort().join('|')
+  const s = standings(t)
+  const p = Object.fromEntries(s.map(x => [x.id, { ...x, conceded: 0, streak: 0, bestStreak: 0, close: 0, sat: 0, first: null }]))
+  const partners = {}, rivals = {}
+  for (const r of rounds) {
+    if (arr(r.matches).some(done)) for (const id of arr(r.sit)) if (p[id]) p[id].sat++ // skip a round ended unplayed
+    for (const m of arr(r.matches).filter(done)) {
+      for (const [mine, other, my, their] of [[m.a, m.b, m.sa, m.sb], [m.b, m.a, m.sb, m.sa]]) {
+        const k = key(arr(mine))
+        partners[k] ??= { ids: arr(mine), pts: 0, n: 0 }
+        partners[k].pts += my
+        partners[k].n++
+        for (const id of arr(mine)) {
+          const x = p[id]
+          if (!x) continue
+          x.conceded += their
+          x.first ??= my > their
+          x.streak = my > their ? x.streak + 1 : 0
+          x.bestStreak = Math.max(x.bestStreak, x.streak)
+          if (my < their && their - my <= 2) x.close++
+          for (const o of arr(other)) if (id < o) (rivals[id + '|' + o] ??= { ids: [id, o], n: 0 }).n++
+        }
+      }
+    }
+  }
+  const ps = Object.values(p).filter(x => x.played)
+  const margin = m => Math.abs(m.sa - m.sb)
+  const out = []
+  const big = best(ms, margin)
+  if (margin(big)) {
+    const [w, l] = big.sa > big.sb ? [big.a, big.b] : [big.b, big.a]
+    out.push({ icon: '💥', title: 'Demolition', text: `${team(w)} beat ${team(l)} ${Math.max(big.sa, big.sb)}–${Math.min(big.sa, big.sb)}` })
+  }
+  const tight = best(ms, m => -margin(m))
+  if (margin(tight) <= 2)
+    out.push({ icon: '😅', title: 'Nail-biter', text: `${team(tight.a)} vs ${team(tight.b)} ended ${tight.sa}–${tight.sb}` })
+  const fire = best(ps, x => x.bestStreak)
+  if (fire.bestStreak >= 2) out.push({ icon: '🔥', title: 'On fire', text: `${fire.name} won ${fire.bestStreak} matches in a row` })
+  const dream = best(Object.values(partners), x => x.pts / x.n + x.n / 100)
+  out.push({ icon: '🤝', title: 'Dream team', text: `${team(dream.ids)} scored ${Math.round(dream.pts / dream.n)} points per match together` })
+  const wall = best(ps, x => -x.conceded / x.played)
+  out.push({ icon: '🧱', title: 'The Wall', text: `${wall.name} conceded only ${(wall.conceded / wall.played).toFixed(1)} points per match` })
+  const wins = best(ps, x => x.won)
+  if (wins.won) out.push({ icon: '🎯', title: 'Win collector', text: `${wins.name} won ${wins.won} of ${wins.played} matches` })
+  const bench = best(Object.values(p), x => x.sat)
+  if (bench.sat) out.push({ icon: '🪑', title: 'Bench warmer', text: `${bench.name} sat out ${bench.sat} time${bench.sat > 1 ? 's' : ''} and still smiled` })
+  const rival = Object.values(rivals).length && best(Object.values(rivals), x => x.n)
+  if (rival?.n >= 2) out.push({ icon: '⚔️', title: 'Rivals', text: `${team(rival.ids).replace(' & ', ' and ')} faced each other ${rival.n} times` })
+  const unlucky = best(ps, x => x.close)
+  if (unlucky.close) out.push({ icon: '💔', title: 'So close', text: `${unlucky.name} lost ${unlucky.close} match${unlucky.close > 1 ? 'es' : ''} by 2 points or less` })
+  const comeback = s.slice(0, 3).find(x => p[x.id].first === false)
+  if (comeback) out.push({ icon: '🚀', title: 'Comeback', text: `${comeback.name} lost the first match and still finished #${s.indexOf(comeback) + 1}` })
+  if (s.length > 3) out.push({ icon: '🌱', title: 'Best is yet to come', text: `${s.at(-1).name}, next time is yours` })
+
+  const rand = rng(seed)
+  return out
+    .map(a => [rand(), a])
+    .sort((x, y) => x[0] - y[0])
+    .slice(0, count)
+    .map(x => x[1])
+}

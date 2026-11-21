@@ -1,4 +1,4 @@
-import { arr, done, courtsInUse, defaultMinutes, suggestRounds, standings, makeRound } from './logic.js'
+import { arr, done, courtsInUse, defaultMinutes, suggestRounds, standings, makeRound, achievements } from './logic.js'
 
 const $app = document.getElementById('app')
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`)
@@ -52,7 +52,7 @@ const isAdmin = () => ls.get('admin_' + code) === '1'
 const save = patch => Promise.resolve(backend.update(code, patch)).catch(e => alert('Could not save: ' + e.message))
 const players = () => Object.entries(t.players || {}).map(([id, p]) => ({ id, ...p }))
 const nameOf = id => esc(t.players?.[id]?.name ?? '?')
-const minutes = () => t.minutes || defaultMinutes(t.points)
+const minutes = () => defaultMinutes(t.points)
 const numRounds = () => t.numRounds || suggestRounds(players().length, t.courts)
 const fmtDur = m => (m >= 60 ? `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, '0')}m` : `${m} min`)
 const link = () => location.origin + location.pathname + '#' + code
@@ -62,7 +62,7 @@ function route() {
   t = undefined
   code = location.hash.slice(1).toUpperCase() || null
   render()
-  if (code) unsub = backend.watch(code, v => { t = v; render() })
+  if (code) unsub = backend.watch(code, v => { t = v; renderSoon() })
 }
 
 function render() {
@@ -79,7 +79,18 @@ function render() {
     const el = document.getElementById(keep.id)
     if (el) { el.value = keep.v; el.focus() }
   }
+  // Wheels show their value by scroll position; unscored ones rest in the middle.
+  for (const w of $app.querySelectorAll('.wheel')) w.scrollTop = Number(w.dataset.v) * w.children[1].offsetHeight
   drawQR()
+}
+
+// Don't re-render under a finger that is spinning a wheel (e.g. another court saving a score).
+let holdUntil = 0, held
+function renderSoon() {
+  const wait = holdUntil - Date.now()
+  if (wait <= 0) return render()
+  clearTimeout(held)
+  held = setTimeout(renderSoon, wait)
 }
 
 // ---- Screens
@@ -148,7 +159,8 @@ function lobby() {
     <div class="setting"><span>Points per match</span>
       <select data-change="points" ${dis}>${[16, 21, 24, 32].map(p => `<option ${p === t.points ? 'selected' : ''}>${p}</option>`).join('')}</select></div>
     <div class="setting"><span>Rounds</span>${stepper('numRounds', numRounds(), 1, 60)}</div>
-    <div class="setting"><span>Minutes per round</span>${stepper('minutes', minutes(), 5, 60)}</div>
+    <div class="setting"><span>Minutes per round</span><b>≈ ${minutes()}</b></div>
+    <p class="muted" style="margin:0">Estimated from the points per match (~30 s per point + 4 min to change courts).</p>
     <div class="estimate">⏱ ≈ ${fmtDur(total)}</div>
     <p class="muted" style="margin:4px 0 0">${n < 4 ? 'Need at least 4 players.' :
       `${used} court${used > 1 ? 's' : ''} in use${used < t.courts ? ` (not enough players for ${t.courts})` : ''}
@@ -161,14 +173,15 @@ function lobby() {
 }
 
 function matchCard(r, m, i, mine) {
-  const a = arr(m.a), b = arr(m.b), isMe = [...a, ...b].includes(mine)
-  const input = (side, v) => `<input id="s-${r}-${i}-${side}" data-score="${r}-${i}-${side}" type="number" inputmode="numeric"
-    min="0" max="${t.points}" value="${v ?? ''}" aria-label="Score" ${t.status === 'done' ? 'disabled' : ''}>`
+  const a = arr(m.a), b = arr(m.b), isMe = [...a, ...b].includes(mine), set = done(m)
+  const names = ids => ids.map(nameOf).join(' & ')
+  const nums = Array.from({ length: t.points + 1 }, (_, n) => `<div data-n="${n}">${n}</div>`).join('')
+  const wheel = (side, v, label) => `<div class="wheel-wrap"><div class="wheel ${set ? '' : 'unset'}" tabindex="0"
+    role="spinbutton" aria-label="Score ${esc(label)}" aria-valuemin="0" aria-valuemax="${t.points}" ${set ? `aria-valuenow="${v}"` : ''}
+    data-wheel="${r}-${i}-${side}" data-v="${set ? v : Math.floor(t.points / 2)}"><div></div>${nums}<div></div></div></div>`
   return `<div class="match ${isMe ? 'me' : ''}">
-    <div class="muted">Court ${i + 1}</div>
-    <div class="team"><span>${a.map(nameOf).join(' & ')}</span>${input('a', m.sa)}</div>
-    <div class="vs">vs</div>
-    <div class="team"><span>${b.map(nameOf).join(' & ')}</span>${input('b', m.sb)}</div>
+    <div class="court muted">Court ${i + 1}${set ? '' : ' · <b>scroll or tap a number</b>'}</div>
+    <span class="names-a">${names(a)}</span>${wheel('a', m.sa, names(a))}<span class="dash">–</span>${wheel('b', m.sb, names(b))}<span>${names(b)}</span>
   </div>`
 }
 
@@ -186,6 +199,7 @@ function playing() {
   const ends = new Date(Date.now() + left * 60000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
   const myMatch = arr(cur.matches).findIndex(m => [...arr(m.a), ...arr(m.b)].includes(mine))
   const last = r + 1 >= t.numRounds
+  const missing = arr(cur.matches).filter(m => !done(m)).length
   return `
   ${top(esc(t.name))}
   <p class="muted" style="margin-top:0">Round <b>${r + 1}</b> of ${t.numRounds} · ≈ ${fmtDur(left)} left · ends ~${ends}</p>
@@ -197,7 +211,8 @@ function playing() {
     ${arr(cur.sit).length ? `<p class="muted">Sitting out: ${arr(cur.sit).map(nameOf).join(', ')}</p>` : ''}
   </div>
   ${isAdmin() ? `<div class="stack" style="margin-bottom:12px">
-    <button class="primary" data-act="next">${last ? 'Finish tournament' : `Next round →`}</button>
+    <button class="primary" data-act="next" ${missing ? 'disabled' : ''}>${last ? 'Finish tournament' : `Next round →`}</button>
+    ${missing ? `<p class="muted" style="text-align:center;margin:0">Enter ${missing} more score${missing > 1 ? 's' : ''} to continue</p>` : ''}
     ${last ? '' : `<button class="danger" data-act="end">End tournament now</button>`}
   </div>` : ''}
   <div class="card"><h2>Standings</h2>${standingsTable()}</div>
@@ -216,6 +231,11 @@ function finished() {
   <div class="card">
     ${s.slice(0, 3).map((p, i) => `<div class="estimate">${['🥇', '🥈', '🥉'][i]} ${esc(p.name)} <span class="muted">· ${p.pts} pts</span></div>`).join('')}
   </div>
+  <div class="card wrapped">
+    <h2>Tournament wrapped</h2>
+    ${achievements(t, code).map(a => `<div class="award"><span class="icon">${a.icon}</span><div><b>${esc(a.title)}</b><br>${esc(a.text)}</div></div>`).join('')}
+  </div>
+  <button class="primary" data-act="shareImage" style="margin-bottom:12px">📸 Share results picture</button>
   <div class="card"><h2>Final standings</h2>${standingsTable()}</div>
   <button class="primary" data-act="create">New tournament</button>`
 }
@@ -263,7 +283,7 @@ const actions = {
   remove: ({ id }) => save({ ['players/' + id]: null }),
   set: ({ k, v }) => save({ [k]: v }),
   step({ k, d }) {
-    const cur = { courts: t.courts, numRounds: numRounds(), minutes: minutes() }[k]
+    const cur = { courts: t.courts, numRounds: numRounds() }[k]
     save({ [k]: cur + Number(d) })
   },
   share() {
@@ -273,17 +293,26 @@ const actions = {
   },
   start() {
     const r = makeRound(t)
-    save({ numRounds: numRounds(), minutes: minutes(), status: 'playing', 'rounds/0': r })
+    save({ numRounds: numRounds(), status: 'playing', 'rounds/0': r })
   },
   next() {
     const rounds = arr(t.rounds)
-    if (arr(rounds.at(-1).matches).some(m => !done(m)) &&
-      !confirm('Some scores are missing. Those matches will not count. Continue?')) return
+    if (arr(rounds.at(-1).matches).some(m => !done(m))) return // every match needs a result first
     if (rounds.length >= t.numRounds) return save({ status: 'done' })
     save({ ['rounds/' + rounds.length]: makeRound(t) })
   },
   end() {
     if (confirm('End the tournament now? Current standings become final.')) save({ status: 'done' })
+  },
+  shareImage() {
+    // Built synchronously so navigator.share still counts as a direct response to the tap (Safari).
+    const bin = atob(wrappedImage().toDataURL('image/png').split(',')[1])
+    const file = new File([Uint8Array.from(bin, c => c.charCodeAt(0))], 'padel-results.png', { type: 'image/png' })
+    if (navigator.canShare?.({ files: [file] })) return navigator.share({ files: [file], title: t.name }).catch(() => {})
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(file)
+    a.download = file.name
+    a.click()
   },
   unlock() {
     if (confirm('Show organiser controls (settings, start, next round, end) on this device?')) {
@@ -302,20 +331,116 @@ $app.addEventListener('submit', e => {
   actions[e.target.dataset.submit](new FormData(e.target))
 })
 $app.addEventListener('change', e => {
-  if (e.target.dataset.change === 'points') save({ points: Number(e.target.value), minutes: null })
+  if (e.target.dataset.change === 'points') save({ points: Number(e.target.value) })
 })
-// Save scores on every keystroke (not on blur): a save re-renders the page, and doing that while the
-// user taps the next field would swallow the tap.
-$app.addEventListener('input', e => {
-  const el = e.target
-  if (!el.dataset.score) return
-  // Fixed total: entering one side fills the other (e.g. 24: 15 → 9).
-  const [r, i, side] = el.dataset.score.split('-')
-  const base = `rounds/${r}/matches/${i}/`
-  const v = el.value === '' ? null : Math.max(0, Math.min(t.points, Math.round(Number(el.value))))
-  const other = v == null ? null : t.points - v
-  save(side === 'a' ? { [base + 'sa']: v, [base + 'sb']: other } : { [base + 'sb']: v, [base + 'sa']: other })
+
+// ---- Score wheels. Fixed total: setting one side fills the other (e.g. to 24: 15 → 9).
+function setScore(key, v) {
+  const [r, i, side] = key.split('-')
+  const m = arr(arr(t.rounds)[r]?.matches)[i]
+  if (!m) return
+  const sa = side === 'a' ? v : t.points - v
+  holdUntil = 0
+  if (done(m) && m.sa === sa) return render() // snap back to the stored value
+  save({ [`rounds/${r}/matches/${i}/sa`]: sa, [`rounds/${r}/matches/${i}/sb`]: t.points - sa })
+}
+// Only user gestures count: setting scrollTop in render() also fires scroll events.
+for (const ev of ['pointerdown', 'touchstart', 'wheel'])
+  $app.addEventListener(ev, e => {
+    const w = e.target.closest?.('.wheel')
+    if (w) (w._touched = true), (holdUntil = Date.now() + 1500)
+  }, { capture: true, passive: true })
+$app.addEventListener('scroll', e => {
+  const w = e.target
+  if (!w.classList?.contains('wheel') || !w._touched) return
+  holdUntil = Date.now() + 1500
+  clearTimeout(w._timer)
+  w._timer = setTimeout(() => setScore(w.dataset.wheel, Math.round(w.scrollTop / w.children[1].offsetHeight)), 180)
+}, true)
+$app.addEventListener('click', e => {
+  const n = e.target.closest('.wheel [data-n]')
+  if (n) setScore(n.parentElement.dataset.wheel, Number(n.dataset.n))
 })
+$app.addEventListener('keydown', e => {
+  const w = e.target.closest?.('.wheel')
+  const d = { ArrowUp: -1, ArrowDown: 1 }[e.key]
+  if (!w || !d) return
+  e.preventDefault()
+  setScore(w.dataset.wheel, Math.max(0, Math.min(t.points, Number(w.dataset.v) + d)))
+  requestAnimationFrame(() => document.querySelector(`[data-wheel="${w.dataset.wheel}"]`)?.focus())
+})
+
+// ---- Shareable "wrapped" picture (1080x1920, story format), drawn on a canvas: no dependencies.
+function wrappedImage() {
+  const W = 1080, H = 1920, c = document.createElement('canvas')
+  c.width = W
+  c.height = H
+  const g = c.getContext('2d')
+  const font = (size, weight = 700) => `${weight} ${size}px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif`
+  const bg = g.createLinearGradient(0, 0, W, H)
+  bg.addColorStop(0, '#0a7d5a')
+  bg.addColorStop(0.55, '#14386b')
+  bg.addColorStop(1, '#5b1a6e')
+  g.fillStyle = bg
+  g.fillRect(0, 0, W, H)
+  for (const [x, y, rad, col] of [[930, 230, 280, '#c6ff3d'], [90, 1450, 340, '#ff5fa2'], [1000, 1150, 160, '#38d9ff']]) {
+    g.globalAlpha = 0.16
+    g.fillStyle = col
+    g.beginPath()
+    g.arc(x, y, rad, 0, 7)
+    g.fill()
+  }
+  g.globalAlpha = 1
+  // Single line, shrunk until it fits.
+  const line = (str, x, y, size, { weight = 700, color = '#fff', align = 'left', max = W - 160 } = {}) => {
+    g.font = font(size, weight)
+    while (g.measureText(str).width > max && size > 18) g.font = font(--size, weight)
+    g.fillStyle = color
+    g.textAlign = align
+    g.fillText(str, x, y)
+  }
+  // Word-wrapped, at most `lines` lines.
+  const wrap = (str, x, y, size, max, lines) => {
+    g.font = font(size, 500)
+    g.fillStyle = '#fff'
+    g.textAlign = 'left'
+    let cur = '', n = 0
+    for (const word of str.split(' ')) {
+      if (cur && g.measureText(cur + ' ' + word).width > max) {
+        if (++n === lines) return g.fillText(cur + '…', x, y)
+        g.fillText(cur, x, y)
+        y += size * 1.25
+        cur = word
+      } else cur = cur ? cur + ' ' + word : word
+    }
+    g.fillText(cur, x, y)
+  }
+  const card = (y, h) => {
+    g.fillStyle = 'rgba(255,255,255,0.12)'
+    g.beginPath()
+    g.roundRect(80, y, W - 160, h, 36)
+    g.fill()
+  }
+  const s = standings(t), played = arr(t.rounds).filter(r => arr(r.matches).some(done)).length
+  line('PADEL WRAPPED', 80, 170, 44, { weight: 800, color: '#c6ff3d' })
+  line(t.name, 80, 270, 84, { weight: 800 })
+  line(`${t.mode[0].toUpperCase() + t.mode.slice(1)} · ${s.length} players · ${played} round${played === 1 ? "" : "s"}`, 80, 335, 38, { weight: 500, color: 'rgba(255,255,255,.8)' })
+  card(400, 330)
+  s.slice(0, 3).forEach((p, i) => {
+    const y = 490 + i * 95
+    line(['🥇', '🥈', '🥉'][i] + ' ' + p.name, 120, y, 58, { max: 680 })
+    line(p.pts + ' pts', W - 120, y, 46, { weight: 600, align: 'right', color: '#c6ff3d', max: 200 })
+  })
+  achievements(t, code).forEach((a, i) => {
+    const y = 780 + i * 245
+    card(y, 220)
+    line(a.icon, 120, y + 130, 80, { max: 120 })
+    line(a.title, 250, y + 80, 44, { weight: 800, color: '#c6ff3d', max: 690 })
+    wrap(a.text, 250, y + 140, 36, 690, 2)
+  })
+  line('Made with Padel Tournament', W / 2, 1860, 30, { weight: 500, align: 'center', color: 'rgba(255,255,255,.7)' })
+  return c
+}
 
 addEventListener('hashchange', route)
 route()

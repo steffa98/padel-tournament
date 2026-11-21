@@ -58,3 +58,23 @@ const play = (t, rounds, score = (m, i) => 24 - i) => {
 }
 
 console.log('logic ok')
+
+// Achievements: deterministic per seed, well-formed, facts match the data.
+{
+  const { achievements } = await import('./logic.js')
+  const t = { players: players(4), rounds: [
+    { matches: [{ a: ['p0', 'p1'], b: ['p2', 'p3'], sa: 20, sb: 4 }] },
+    { matches: [{ a: ['p0', 'p2'], b: ['p1', 'p3'], sa: 13, sb: 11 }] },
+  ] }
+  const all = achievements(t, 'X', 99)
+  const by = Object.fromEntries(all.map(a => [a.title, a.text]))
+  assert.equal(by['Demolition'], 'P0 & P1 beat P2 & P3 20–4')
+  assert.equal(by['Nail-biter'], 'P0 & P2 vs P1 & P3 ended 13–11')
+  assert.equal(by['On fire'], 'P0 won 2 matches in a row')
+  assert.equal(by['So close'], 'P1 lost 1 match by 2 points or less')
+  assert.ok(all.every(a => a.icon && a.title && a.text))
+  assert.deepEqual(achievements(t, 'ABCDE'), achievements(t, 'ABCDE'))
+  assert.equal(achievements(t, 'ABCDE').length, 4)
+  assert.deepEqual(achievements({ players: players(4), rounds: [] }), [])
+}
+console.log('achievements ok')

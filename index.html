@@ -45,11 +45,24 @@
   ul.players { list-style: none; padding: 0; margin: 0; }
   ul.players li { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-top: 1px solid var(--line); }
   ul.players li button { min-height: 36px; padding: 0 12px; }
-  .match { padding: 10px 12px; border-radius: 12px; border: 1px solid var(--line); margin-top: 8px; }
+  .match { display: grid; grid-template-columns: 1fr auto auto auto 1fr; align-items: center; gap: 6px;
+    padding: 10px; border-radius: 12px; border: 1px solid var(--line); margin-top: 8px; }
+  .match .court { grid-column: 1 / -1; }
+  .match .names-a { text-align: right; }
   .match.me, tr.me td { background: var(--hl); }
-  .team { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 4px 0; }
-  .team input { width: 72px; flex: none; text-align: center; font-size: 1.3rem; font-weight: 600; }
-  .vs { font-size: .75rem; color: var(--muted); }
+  .dash { color: var(--muted); }
+  /* Scroll wheel: 3 rows visible, the middle one (between the lines) is the value. */
+  .wheel-wrap { position: relative; width: 58px; height: 132px; }
+  .wheel-wrap::after { content: ""; position: absolute; inset: 44px 0; border-block: 2px solid var(--accent); pointer-events: none; }
+  .wheel { height: 100%; overflow-y: scroll; scroll-snap-type: y mandatory; scrollbar-width: none; overscroll-behavior: contain;
+    border-radius: 10px; background: var(--bg); touch-action: pan-y;
+    -webkit-mask-image: linear-gradient(transparent, #000 35%, #000 65%, transparent); mask-image: linear-gradient(transparent, #000 35%, #000 65%, transparent); }
+  .wheel::-webkit-scrollbar { display: none; }
+  .wheel > div { height: 44px; line-height: 44px; text-align: center; scroll-snap-align: center; font-size: 1.35rem; font-weight: 700; cursor: pointer; }
+  .wheel.unset > div { opacity: .35; }
+  .wheel:focus-visible { outline: 2px solid var(--accent); }
+  .award { display: flex; gap: 12px; align-items: center; padding: 10px 0; border-top: 1px solid var(--line); }
+  .award .icon { font-size: 2rem; }
   .banner { background: var(--hl); border-radius: 12px; padding: 12px; margin-bottom: 12px; font-weight: 600; }
   table { width: 100%; border-collapse: collapse; }
   th, td { padding: 8px 6px; text-align: left; border-top: 1px solid var(--line); }
