@@ -75,9 +75,15 @@
 <body>
 <main id="app"><p class="muted">Loading…</p></main>
 <script>
-  // Paste your Firebase web config here to sync between phones (see README.md).
-  // Left as null, the app runs on a single device only.
-  window.FIREBASE_CONFIG = null
+  // Firebase web config: syncs tournaments between phones (see README.md). Not a secret; access is
+  // controlled by database.rules.json. Set to null to run on a single device only.
+  window.FIREBASE_CONFIG = {
+    apiKey: 'AIzaSyAxYQa_nxCiZD1o_XDxZR8nEh6OIBDZqbY',
+    authDomain: 'padel-tournament-b6644.firebaseapp.com',
+    databaseURL: 'https://padel-tournament-b6644-default-rtdb.europe-west1.firebasedatabase.app',
+    projectId: 'padel-tournament-b6644',
+    appId: '1:549376622630:web:a9633ab611a7bf2d2626e7',
+  }
 </script>
 <script type="module" src="app.js"></script>
 </body>
