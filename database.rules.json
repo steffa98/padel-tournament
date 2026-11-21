@@ -2,9 +2,16 @@
   "rules": {
     "t": {
       "$code": {
-        ".read": true,
-        ".write": true,
-        ".validate": "$code.matches(/^[A-Z2-9]{5}$/) && newData.child('name').isString() && newData.child('name').val().length < 60"
+        ".read": "!data.exists() || data.child('created').val() > now - 2592000000",
+        ".write": "newData.exists() || !data.exists() || data.child('created').val() <= now - 2592000000",
+        ".validate": "$code.matches(/^[A-Z2-9]{5}$/) && newData.child('name').isString() && newData.child('name').val().length < 60 && (data.exists() ? newData.child('created').val() === data.child('created').val() : newData.child('created').val() === now && newData.parent().parent().child('exp/' + $code).exists())"
+      }
+    },
+    "exp": {
+      ".indexOn": ".value",
+      ".read": "query.orderByValue === true && query.endAt <= '' + (now - 2592000000)",
+      "$code": {
+        ".write": "newData.exists() ? newData.parent().parent().child('t/' + $code + '/created').val() === now && newData.isString() && newData.val().length === 13 && newData.val() >= '' + (now - 86400000) && newData.val() <= '' + (now + 86400000) : data.val() <= '' + (now - 2592000000)"
       }
     }
   }

@@ -34,7 +34,8 @@ Firebase Realtime Database to sync phones.
 
 1. Go to <https://console.firebase.google.com>, **Add project** (Google Analytics not needed). The free Spark plan is enough.
 2. **Build → Realtime Database → Create database** (pick the region closest to you, start in *locked mode*).
-3. **Rules** tab: paste the contents of [database.rules.json](database.rules.json), **Publish**.
+3. **Rules** tab: paste the contents of [database.rules.json](database.rules.json), **Publish**. Publish the rules
+   *before* deploying a new version of the app: the app writes paths that older rules reject.
 4. **Project settings (gear) → Your apps → Web (`</>`)**: register an app (no hosting needed), copy the `firebaseConfig` object.
 5. In [index.html](index.html), replace `window.FIREBASE_CONFIG = null` with that object, e.g.
    ```js
@@ -66,8 +67,14 @@ node logic.test.mjs
 node edge.test.mjs   # sweeps 4-40 players x 1-10 courts x both modes
 ```
 
+Database rules test (Firebase emulator, needs Java 11+): see the header of [rules.test.mjs](rules.test.mjs).
+
 ## Known limits
 
 - Anyone with a tournament code can read and edit that tournament (fine for a club evening; codes are random, 31⁵ ≈ 28 M).
-- Old tournaments are never deleted. The free tier (1 GB) holds hundreds of thousands of them; delete in the Firebase console if needed.
+- Tournaments (player names, scores) are deleted 30 days after creation. The free plan has no scheduled jobs, so
+  each visit to the app deletes up to 50 expired tournaments; until then the rules already block reading them.
+  To change the period, edit `2592000000` (ms) in [database.rules.json](database.rules.json) and `KEEP_DAYS` in [app.js](app.js).
+- A tournament can't be deleted as a whole before it expires, but anyone with the code can still edit or remove
+  players and scores (there are no logins).
 - If the player count is not a multiple of 4, some players can end with one match fewer. Standings show *Played* so this is visible.
