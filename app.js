@@ -10,16 +10,28 @@ const rid = (n, abc = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789') =>
   Array.from(crypto.getRandomValues(new Uint8Array(n)), x => abc[x % abc.length]).join('')
 
 // ---- Sync backend: Firebase Realtime Database if configured, else localStorage (one device, syncs across tabs).
+// Tournaments are deleted KEEP_DAYS after creation; must match the 30 days (2592000000 ms) in database.rules.json.
+const KEEP_DAYS = 30, DAY = 86400000
 let backend
 if (window.FIREBASE_CONFIG) {
   const V = 'https://www.gstatic.com/firebasejs/10.12.2/'
   const { initializeApp } = await import(V + 'firebase-app.js')
-  const { getDatabase, ref, onValue, update } = await import(V + 'firebase-database.js')
+  const { getDatabase, ref, onValue, update, get, query, orderByValue, endAt, limitToFirst } = await import(V + 'firebase-database.js')
   const db = getDatabase(initializeApp(window.FIREBASE_CONFIG))
+  const now = { '.sv': 'timestamp' } // server time; the rules check it
   backend = {
-    watch: (code, cb) => onValue(ref(db, 't/' + code), s => cb(s.val())),
+    // Expired (or unreadable) tournaments show as "not found".
+    watch: (code, cb) => onValue(ref(db, 't/' + code), s => cb(s.val()), () => cb(null)),
     update: (code, patch) => update(ref(db, 't/' + code), patch),
+    // exp/<code> = creation time as a 13-digit string: rules can range-check query strings, not numbers.
+    // It is the only list the rules let anyone read, and only its expired entries.
+    create: (code, data) => update(ref(db), { ['t/' + code]: { ...data, created: now }, ['exp/' + code]: String(Date.now()) }),
   }
+  // The free plan has no scheduled jobs, so every visit deletes up to 50 expired tournaments.
+  // One extra day of margin for phones whose clock runs ahead of the server.
+  get(query(ref(db, 'exp'), orderByValue(), endAt(String(Date.now() - (KEEP_DAYS + 1) * DAY)), limitToFirst(50)))
+    .then(s => s.exists() && update(ref(db), Object.fromEntries(Object.keys(s.val()).flatMap(c => [['t/' + c, null], ['exp/' + c, null]]))))
+    .catch(() => {})
 } else {
   const read = code => JSON.parse(ls.get('t_' + code) || 'null')
   let listener
@@ -42,6 +54,7 @@ if (window.FIREBASE_CONFIG) {
       ls.set('t_' + code, JSON.stringify(t))
       listener?.()
     },
+    create(code, data) { this.update(code, { ...data, created: Date.now() }) },
   }
 }
 
@@ -136,7 +149,7 @@ const modeInfo = {
 }
 
 const notFound = () => `<h1>Tournament ${esc(code)} not found</h1>
-  ${window.FIREBASE_CONFIG ? '<p>Check the code with the organiser.</p>' : `<div class="banner">This app is not connected to a
+  ${window.FIREBASE_CONFIG ? `<p>Check the code with the organiser. Tournaments are deleted ${KEEP_DAYS} days after they were created.</p>` : `<div class="banner">This app is not connected to a
   shared database yet, so a tournament only exists on the phone that created it. Add the Firebase config to
   index.html (see README) to let other phones join.</div>`}
   <a href="#">← Back</a>`
@@ -202,6 +215,8 @@ function lobby() {
           <button data-act="remove" data-id="${p.id}" aria-label="Remove ${esc(p.name)}">✕</button></span>`
         : p.id === mine ? `<button data-act="remove" data-id="${p.id}" aria-label="Leave the tournament">✕</button>` : ''}</li>`).join('')}
     </ul>
+    <p class="muted" style="margin:12px 0 0">Names are visible to anyone with this code and are deleted with the tournament
+      ${KEEP_DAYS} days after it was created.</p>
     ${admin && full ? `<p class="muted" style="margin:12px 0 0">Full. To add more players, raise <b>Max players</b> in Edit rules.</p>`
       : admin ? `<form class="row" data-submit="add" style="margin-top:12px">
       <input id="a-name" name="name" placeholder="Add player without phone" maxlength="24" required>
@@ -349,7 +364,7 @@ const actions = {
     if (code) return save(rules)
     code = rid(5)
     ls.set('admin_' + code, '1')
-    save({ ...rules, status: 'lobby', created: Date.now() })
+    Promise.resolve(backend.create(code, { ...rules, status: 'lobby' })).catch(e => alert('Could not save: ' + e.message))
     location.hash = code
   },
   goto: fd => (location.hash = String(fd.get('code')).replace(/\s/g, '').toUpperCase()),
