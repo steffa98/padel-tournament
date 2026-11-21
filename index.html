@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#0a7d5a">
+<title>Padel Tournament</title>
+<style>
+  :root { --bg:#f4f6f5; --card:#fff; --text:#14201b; --muted:#5d6b65; --accent:#0a7d5a; --on-accent:#fff; --line:#dde3e0; --hl:#e1f3ea; --danger:#b3261e; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#0f1513; --card:#18211e; --text:#e8efec; --muted:#93a39c; --accent:#2fbf8a; --on-accent:#04140d; --line:#2a3531; --hl:#1c3a2e; --danger:#ff8a80; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 560px; margin: 0 auto; padding: 16px 16px 48px; }
+  h1 { font-size: 1.5rem; margin: 8px 0 16px; }
+  h2 { font-size: .8rem; margin: 0 0 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+  a { color: var(--accent); }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px; margin-bottom: 12px; }
+  button, input, select { font: inherit; color: inherit; }
+  button { min-height: 44px; padding: 0 16px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); cursor: pointer; }
+  button.primary { background: var(--accent); color: var(--on-accent); border-color: transparent; font-weight: 600; width: 100%; }
+  button.link { border: 0; background: none; color: var(--muted); text-decoration: underline; min-height: 32px; padding: 0; }
+  button.danger { color: var(--danger); width: 100%; }
+  button:disabled { opacity: .4; cursor: default; }
+  input, select { min-height: 44px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); width: 100%; }
+  .row { display: flex; gap: 8px; align-items: center; }
+  .row > input { flex: 1; }
+  .stack > * + * { margin-top: 8px; }
+  .muted { color: var(--muted); }
+  .top { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+  .top h1 { flex: 1; margin: 0; overflow-wrap: anywhere; }
+  .top a { text-decoration: none; font-size: 1.5rem; padding: 4px 8px 4px 0; }
+  .setting { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); }
+  .setting select { width: auto; }
+  .stepper { display: flex; align-items: center; gap: 6px; }
+  .stepper button { width: 44px; padding: 0; font-size: 1.2rem; }
+  .stepper b { min-width: 3ch; text-align: center; }
+  .seg { display: flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  .seg button { border: 0; border-radius: 0; flex: 1; }
+  .seg .on { background: var(--accent); color: var(--on-accent); font-weight: 600; }
+  .estimate { font-size: 1.15rem; font-weight: 600; margin-top: 10px; }
+  .code { font: 700 2.2rem ui-monospace, Menlo, Consolas, monospace; letter-spacing: .2em; text-align: center; }
+  #qr svg { width: 180px; height: 180px; display: block; margin: 8px auto; border-radius: 8px; }
+  ul.players { list-style: none; padding: 0; margin: 0; }
+  ul.players li { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-top: 1px solid var(--line); }
+  ul.players li button { min-height: 36px; padding: 0 12px; }
+  .match { padding: 10px 12px; border-radius: 12px; border: 1px solid var(--line); margin-top: 8px; }
+  .match.me, tr.me td { background: var(--hl); }
+  .team { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 4px 0; }
+  .team input { width: 72px; flex: none; text-align: center; font-size: 1.3rem; font-weight: 600; }
+  .vs { font-size: .75rem; color: var(--muted); }
+  .banner { background: var(--hl); border-radius: 12px; padding: 12px; margin-bottom: 12px; font-weight: 600; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { padding: 8px 6px; text-align: left; border-top: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 500; font-size: .85rem; }
+  .num { text-align: right; font-variant-numeric: tabular-nums; }
+  details summary { cursor: pointer; min-height: 32px; }
+</style>
+</head>
+<body>
+<main id="app"><p class="muted">Loading…</p></main>
+<script>
+  // Paste your Firebase web config here to sync between phones (see README.md).
+  // Left as null, the app runs on a single device only.
+  window.FIREBASE_CONFIG = null
+</script>
+<script type="module" src="app.js"></script>
+</body>
+</html>

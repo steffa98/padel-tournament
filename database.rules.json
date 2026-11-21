@@ -1,0 +1,11 @@
+{
+  "rules": {
+    "t": {
+      "$code": {
+        ".read": true,
+        ".write": true,
+        ".validate": "$code.matches(/^[A-Z2-9]{5}$/) && newData.child('name').isString() && newData.child('name').val().length < 60"
+      }
+    }
+  }
+}
