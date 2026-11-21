@@ -50,6 +50,7 @@
     padding: 10px; border-radius: 12px; border: 1px solid var(--line); margin-top: 8px; }
   .match .court { grid-column: 1 / -1; }
   .match .names-a { text-align: right; }
+  .match span, ul.players li > span, td { overflow-wrap: anywhere; } /* 24-char names without spaces */
   .match.me, tr.me td { background: var(--hl); }
   .dash { color: var(--muted); }
   /* Scroll wheel: 3 rows visible, the middle one (between the lines) is the value. */

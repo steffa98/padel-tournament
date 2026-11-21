@@ -63,6 +63,7 @@ Open <http://localhost:8765>. Tests for the pairing/standings logic:
 
 ```powershell
 node logic.test.mjs
+node edge.test.mjs   # sweeps 4-40 players x 1-10 courts x both modes
 ```
 
 ## Known limits

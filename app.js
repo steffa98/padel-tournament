@@ -50,7 +50,7 @@ let code = null, t, unsub
 const me = () => ls.get('me_' + code)
 const isAdmin = () => ls.get('admin_' + code) === '1'
 const save = patch => Promise.resolve(backend.update(code, patch)).catch(e => alert('Could not save: ' + e.message))
-const players = () => Object.entries(t.players || {}).map(([id, p]) => ({ id, ...p }))
+const players = () => Object.entries(t.players || {}).map(([id, p]) => ({ id, ...p })).sort((a, b) => (a.at || 0) - (b.at || 0))
 const nameOf = id => esc(t.players?.[id]?.name ?? '?')
 const minutes = () => defaultMinutes(t.points)
 // Auto rounds follow who actually joined; before 4 have joined, use the planned player count.
@@ -69,8 +69,21 @@ function route() {
   code = location.hash.slice(1).toUpperCase() || null
   draft = code === 'NEW' ? newDraft() : null
   if (draft) code = null
+  // A mistyped code (wrong length, '#', '.', …) is "not found"; Firebase would throw on some characters.
+  if (code && !/^[A-Z0-9]{5}$/.test(code)) t = null
   render()
-  if (code) unsub = backend.watch(code, v => { t = v; renderSoon() })
+  if (code && t !== null) unsub = backend.watch(code, v => { t = v; renderSoon() })
+}
+
+// Clean player name, or null (after telling the user) when it is blank or already used.
+function validName(raw, exceptId) {
+  const name = String(raw ?? '').trim().replace(/\s+/g, ' ').slice(0, 24)
+  if (!name) return null
+  if (players().some(p => p.id !== exceptId && p.name.toLowerCase() === name.toLowerCase())) {
+    alert(`"${name}" is already in the list. Add an initial to tell them apart.`)
+    return null
+  }
+  return name
 }
 
 function render() {
@@ -257,7 +270,7 @@ function playing() {
   ${isAdmin() ? `<div class="stack" style="margin-bottom:12px">
     <button class="primary" data-act="next" ${missing ? 'disabled' : ''}>${last ? 'Finish tournament' : `Next round →`}</button>
     ${missing ? `<p class="muted" style="text-align:center;margin:0">Enter ${missing} more score${missing > 1 ? 's' : ''} to continue</p>` : ''}
-    ${last ? '' : `<button class="danger" data-act="end">End tournament now</button>`}
+    <button class="danger" data-act="end">End tournament now</button>
   </div>` : ''}
   <div class="card"><h2>Standings</h2>${standingsTable()}</div>
   ${r ? `<div class="card"><details><summary>Previous rounds (tap to edit scores)</summary>
@@ -269,17 +282,19 @@ function playing() {
 
 function finished() {
   const s = standings(t), played = arr(t.rounds).filter(r => arr(r.matches).some(done)).length
+  const awards = achievements(t, code)
   return `
   ${top('🏆 ' + esc(t.name))}
   <p class="muted" style="margin-top:0">Finished after ${played} of ${t.numRounds} rounds${played < t.numRounds ? ' (ended early)' : ''}.</p>
+  ${!played ? '<div class="card"><p style="margin:0">No matches were scored, so there is no winner.</p></div>' : `
   <div class="card">
     ${s.slice(0, 3).map((p, i) => `<div class="estimate">${['🥇', '🥈', '🥉'][i]} ${esc(p.name)} <span class="muted">· ${p.pts} pts</span></div>`).join('')}
   </div>
   <div class="card wrapped">
     <h2>Tournament wrapped</h2>
-    ${achievements(t, code).map(a => `<div class="award"><span class="icon">${a.icon}</span><div><b>${esc(a.title)}</b><br>${esc(a.text)}</div></div>`).join('')}
+    ${awards.map(a => `<div class="award"><span class="icon">${a.icon}</span><div><b>${esc(a.title)}</b><br>${esc(a.text)}</div></div>`).join('')}
   </div>
-  <button class="primary" data-act="shareImage" style="margin-bottom:12px">📸 Share results picture</button>
+  <button class="primary" data-act="shareImage" style="margin-bottom:12px">📸 Share results picture</button>`}
   <div class="card"><h2>Final standings</h2>${standingsTable()}</div>
   <a class="button primary" href="#new">New tournament</a>`
 }
@@ -329,7 +344,7 @@ const actions = {
   },
   saveRules(fd) {
     const { mode, courts, points, expected, numRounds } = draft
-    const rules = { name: String(fd.get('name')).trim(), mode, courts, points, expected, numRounds }
+    const rules = { name: String(fd.get('name')).trim() || 'Padel tournament', mode, courts, points, expected, numRounds }
     draft = null
     if (code) return save(rules)
     code = rid(5)
@@ -337,21 +352,29 @@ const actions = {
     save({ ...rules, status: 'lobby', created: Date.now() })
     location.hash = code
   },
-  goto: fd => (location.hash = String(fd.get('code')).trim().toUpperCase()),
+  goto: fd => (location.hash = String(fd.get('code')).replace(/\s/g, '').toUpperCase()),
   // ponytail: cap is client-side only (Realtime Database rules can't count players); two phones taking the
   // last spot at the same instant can go one over. The organiser can remove the extra player.
   join(fd) {
     if (isFull()) return alert('Sorry, this tournament is full.')
+    const name = validName(fd.get('name'))
+    if (!name) return
     const id = rid(8)
     ls.set('me_' + code, id)
-    save({ ['players/' + id]: { name: String(fd.get('name')).trim() } })
+    save({ ['players/' + id]: { name, at: Date.now() } })
   },
-  add: fd => !isFull() && save({ ['players/' + rid(8)]: { name: String(fd.get('name')).trim() } }),
+  add(fd) {
+    const name = !isFull() && validName(fd.get('name'))
+    if (name) save({ ['players/' + rid(8)]: { name, at: Date.now() } })
+  },
   remove({ id }) {
+    if (!t.players?.[id]) return // already removed from another phone
     if (confirm(id === me() ? 'Leave the tournament?' : `Remove ${t.players[id].name}?`)) save({ ['players/' + id]: null })
   },
   rename({ id }) {
-    const name = prompt('New name', t.players[id].name)?.trim().slice(0, 24)
+    if (!t.players?.[id]) return
+    const input = prompt('New name', t.players[id].name)
+    const name = input != null && validName(input, id)
     if (name) save({ [`players/${id}/name`]: name })
   },
   share() {
@@ -360,6 +383,7 @@ const actions = {
     else navigator.clipboard.writeText(url).then(() => alert('Link copied'), () => prompt('Copy this link', url))
   },
   start() {
+    if (players().length < 4) return // players left on another phone since the button was drawn
     const r = makeRound(t)
     save({ numRounds: numRounds(), status: 'playing', 'rounds/0': r })
   },
